@@ -1,0 +1,22 @@
+###The main packages used by each platform and their corresponding versions###
+##################### R studio #####################
+R=4.3.3
+stats=4.3.3
+outliers=0.15
+ggsci=3.2.0
+ggplot2=3.5.2
+ComplexHeatmap=2.18.0
+grid=4.3.3
+pheatmap=1.0.12
+graphics=4.3.3
+grDevices=4.3.3
+utils=4.3.3
+datasets=4.3.3
+methods=4.3.3
+base=4.3.3
+
+##################### Linux #####################
+Linux==Ubuntu 24.04.1
+
+##################### python #####################
+Python==3.9.18
