@@ -51,65 +51,65 @@ logging.basicConfig(level=logging.INFO,
 class SEBlock(nn.Module):
     def __init__(self, in_channels, reduction=16):
         super(SEBlock, self).__init__()
-        # 定义第一个全连接层，将输入通道数压缩为 in_channels // reduction
+        # Define the first fully connected layer, compressing the number of input channels to in_channels // reduction.
         self.fc1 = nn.Linear(in_channels, in_channels // reduction)
-        # 定义第二个全连接层，将通道数恢复为原始输入通道数
+        # Define the second fully connected layer to restore the number of channels to the original input channel count.
         self.fc2 = nn.Linear(in_channels // reduction, in_channels)
-        # 定义Sigmoid激活函数，用于生成注意力权重
+        # Define the Sigmoid activation function used to generate attention weights.
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
-        # 获取输入张量的 batch_size 和 channels
+        # Get the batch_size and channels of the input tensor.
         batch_size, channels, _, _ = x.size()
-        # 对输入张量的空间维度（高度和宽度）进行全局平均池化
+        # Perform global average pooling on the spatial dimensions (height and width) of the input tensor.
         squeeze = torch.mean(x, dim=(2, 3))
-        # 通过第一个全连接层进行通道压缩
+        # Channel compression is performed through the first fully connected layer.
         squeeze = self.fc1(squeeze)
-        # 通过ReLU激活函数和第二个全连接层进行通道扩展
+        # Channel expansion is carried out through the ReLU activation function and the second fully connected layer.
         squeeze = self.fc2(F.relu(squeeze))
-        # 使用Sigmoid生成注意力权重，并调整形状以匹配输入张量的维度
+        # Use Sigmoid to generate attention weights and adjust the shape to match the dimensions of the input tensor.
         attention = self.sigmoid(squeeze).view(batch_size, channels, 1, 1)
-        # 将注意力权重应用到输入张量上，进行通道加权
+        # Apply the attention weights to the input tensor for channel weighting.
         return x * attention
 
 
 class CBAM(nn.Module):
     def __init__(self, in_channels, reduction=16):
         super(CBAM, self).__init__()
-        # 通道注意力模块（SEBlock），用于学习通道间的注意力权重
+        # Channel attention module (SEBlock), used to learn attention weights between channels.
         self.channel_attention = SEBlock(in_channels, reduction)
-        # 空间注意力模块，使用1x1卷积核学习空间注意力权重
+        # Spatial attention module, using 1x1 convolution kernels to learn spatial attention weights.
         self.spatial_attention = nn.Conv2d(2, 1, kernel_size=7, padding=3)
 
     def forward(self, x):
-        # 应用通道注意力模块，对输入特征进行通道加权
+        # Apply the channel attention module to perform channel weighting on the input features.
         x = self.channel_attention(x)
-        # 计算输入特征在通道维度上的平均值
+        # Calculate the average of the input features along the channel dimension.
         avg_out = torch.mean(x, dim=1, keepdim=True)
-        # 计算输入特征在通道维度上的最大值
+        # Calculate the maximum value of the input features along the channel dimension.
         max_out, _ = torch.max(x, dim=1, keepdim=True)
-        # 将平均值和最大值拼接在一起
+        # Concatenate the average value and the maximum value together.
         spatial_out = torch.cat([avg_out, max_out], dim=1)
-        # 通过空间注意力模块学习空间注意力权重
+        # Learn spatial attention weights through the spatial attention module.
         spatial_out = self.spatial_attention(spatial_out)
-        # 使用Sigmoid激活函数生成空间注意力权重
+        # Generate spatial attention weights using the Sigmoid activation function.
         spatial_attention = torch.sigmoid(spatial_out)
-        # 将空间注意力权重应用到输入特征上，进行空间加权
+        # Apply the spatial attention weights to the input features to perform spatial weighting.
         return x * spatial_attention
 
 
 class DualAttentionBlock(nn.Module):
     def __init__(self, in_channels, reduction=16):
         super(DualAttentionBlock, self).__init__()
-        # 通道注意力模块（SEBlock），用于学习通道间的注意力权重
+        # Channel attention module (SEBlock), used to learn the attention weights between channels.
         self.channel_attention = SEBlock(in_channels, reduction)
-        # 空间注意力模块（CBAM），用于学习空间上的注意力权重
+        # The Spatial Attention Module (CBAM) is used to learn spatial attention weights.
         self.spatial_attention = CBAM(in_channels, reduction)
 
     def forward(self, x):
-        # 应用通道注意力模块，对输入特征进行通道加权
+        # Apply the channel attention module to perform channel weighting on the input features.
         x = self.channel_attention(x)
-        # 应用空间注意力模块，对输入特征进行空间加权
+        # Apply the spatial attention module to weight the input features spatially.
         x = self.spatial_attention(x)
         return x
 
@@ -132,38 +132,38 @@ class ResNetWithAttention(nn.Module):
     def __init__(self, attention_cls, pretrained=True):
         super(ResNetWithAttention, self).__init__()
 
-        # 使用预训练的 ResNet50
+        # Use the pre-trained ResNet50
         self.base_model = models.resnet50(pretrained=pretrained)
 
-        # 创建注意力模块
-        # self.attention_layer1 = attention_cls(64)  # 第一层卷积后
-        # self.attention_layer2 = attention_cls(2048)  # 最后一层卷积后
+        # Create attention module
+        # self.attention_layer1 = attention_cls(64)
+        # self.attention_layer2 = attention_cls(2048)
 
     def forward(self, x):
-        # ResNet50的前向传播过程
-        x = self.base_model.conv1(x)  # 初始卷积层
-        x = self.base_model.bn1(x)  # 批归一化
-        x = self.base_model.relu(x)  # 激活函数
+        # The forward propagation process of ResNet50
+        x = self.base_model.conv1(x)  # Initial convolution layer
+        x = self.base_model.bn1(x)  # Batch normalization
+        x = self.base_model.relu(x)  # Activation function
 
-        # 第一个注意力模块：第一层卷积后
+        # First attention module: after the first layer convolution
         # x = self.attention_layer1(x)
 
-        # 最大池化层
+        # Max Pooling Layer
         x = self.base_model.maxpool(x)
 
-        # ResNet的残差层
+        # Residual layer of ResNet
         x = self.base_model.layer1(x)
         x = self.base_model.layer2(x)
         x = self.base_model.layer3(x)
         x = self.base_model.layer4(x)
 
-        # 第二个注意力模块：最后一层卷积后
+        # Second attention module: after the last convolution layer
         # x = self.attention_layer2(x)
 
-        # 平均池化
+        # Average pooling
         x = self.base_model.avgpool(x)
 
-        # 展平并通过全连接层
+        # Flatten and pass through the fully connected layer.
         x = torch.flatten(x, 1)
         x = self.base_model.fc(x)
         
@@ -171,11 +171,11 @@ class ResNetWithAttention(nn.Module):
 
 
 
-# 数据读取
+# read data
 transforms = transforms.Compose([
-    transforms.Resize([224,224]),    # 将图片短边缩放至224，长宽比保持不变：
-    transforms.RandomHorizontalFlip(),   #将图片随机翻转
-    transforms.ToTensor()          #把图片进行归一化，并把数据转换成Tensor类型
+    transforms.Resize([224,224]),    # Scale the shorter side of the image to 224 while maintaining the aspect ratio.
+    transforms.RandomHorizontalFlip(),   # Randomly flip the image
+    transforms.ToTensor()          # Normalize the images and convert the data into Tensor type.
 ])
 
 
@@ -197,7 +197,7 @@ class MyDataset(Dataset):
 
         img = Image.open(img).convert('RGB')
 
-        # 此时img是PIL.Image类型   label是str类型
+        # img is of type PIL.Image and label is of type str.
 
         if self.transform is not None:
             img = self.transform(img)
@@ -267,7 +267,7 @@ def test(net, test_iter, criterion, device):
     net.eval()
     pred_label = []
     true_label = []
-    pred_proba = []  # 用于保存正类的预测概率
+    pred_proba = []  # Used to store the predicted probabilities of the positive class.
 
     with torch.no_grad():
         print("*************** test ***************")
@@ -276,12 +276,12 @@ def test(net, test_iter, criterion, device):
             X, y = X.to(device), y.to(device)
 
             output = net(X)
-            probs = F.softmax(output, dim=1)  # 转换为概率
+            probs = F.softmax(output, dim=1)  # Convert to probability
 
-            # 获取预测类别和预测概率
+            # Obtain predicted category and predicted probability
             predicted_classes = torch.argmax(probs, dim=1)
 
-            # 获取正类（类别1）的预测概率用于 ROC
+            # Obtain the predicted probability of the positive class (Category 1) for ROC.
             pos_probs = probs[:, 1].cpu().numpy()
 
             loss = criterion(output, y)
@@ -289,13 +289,13 @@ def test(net, test_iter, criterion, device):
             total += y.size(0)
             correct += (predicted_classes == y).sum().item()
 
-            # 保存结果
+            # Save results
             pred_label.extend(predicted_classes.cpu().numpy())
-            pred_proba.extend(pos_probs)          # 保存正类概率
+            pred_proba.extend(pos_probs)          # Save the positive class probability
             true_label.extend(y.cpu().numpy())
 
-    # 计算 ROC 曲线和 AUC
-    if len(set(true_label)) > 1:  # 只有正负样本都有的时候才能计算 ROC
+    # Calculate ROC curve and AUC
+    if len(set(true_label)) > 1:  # The ROC can only be calculated when both positive and negative samples are present.
         fpr, tpr, _ = roc_curve(true_label, pred_proba)
         roc_auc = auc(fpr, tpr)
         print("roc_auc: {:.4f}".format(roc_auc))
@@ -303,7 +303,7 @@ def test(net, test_iter, criterion, device):
         roc_auc = None
         print("Only one class present, cannot compute ROC AUC.")
 
-    # 计算准确率
+    # Calculate accuracy
     test_acc = 100.0 * correct / total
     print("test_loss: {:.3f} | test_acc: {:6.3f}%".format(loss.item(), test_acc))
     logging.info("test_loss: {:.3f} | test_acc: {:6.3f}%".format(loss.item(), test_acc))

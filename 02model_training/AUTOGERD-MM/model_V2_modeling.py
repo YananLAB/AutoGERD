@@ -51,65 +51,65 @@ logging.basicConfig(level=logging.INFO,
 class SEBlock(nn.Module):
     def __init__(self, in_channels, reduction=16):
         super(SEBlock, self).__init__()
-        # 定义第一个全连接层，将输入通道数压缩为 in_channels // reduction
+        # Define the first fully connected layer, compressing the number of input channels to in_channels // reduction.
         self.fc1 = nn.Linear(in_channels, in_channels // reduction)
-        # 定义第二个全连接层，将通道数恢复为原始输入通道数
+        # Define the second fully connected layer to restore the number of channels to the original input channel count.
         self.fc2 = nn.Linear(in_channels // reduction, in_channels)
-        # 定义Sigmoid激活函数，用于生成注意力权重
+        # Define the Sigmoid activation function used to generate attention weights.
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
-        # 获取输入张量的 batch_size 和 channels
+        # Get the batch_size and channels of the input tensor.
         batch_size, channels, _, _ = x.size()
-        # 对输入张量的空间维度（高度和宽度）进行全局平均池化
+        # Perform global average pooling on the spatial dimensions (height and width) of the input tensor.
         squeeze = torch.mean(x, dim=(2, 3))
-        # 通过第一个全连接层进行通道压缩
+        # Channel compression is performed through the first fully connected layer.
         squeeze = self.fc1(squeeze)
-        # 通过ReLU激活函数和第二个全连接层进行通道扩展
+        # Channel expansion is carried out through the ReLU activation function and the second fully connected layer.
         squeeze = self.fc2(F.relu(squeeze))
-        # 使用Sigmoid生成注意力权重，并调整形状以匹配输入张量的维度
+        # Use Sigmoid to generate attention weights and adjust the shape to match the dimensions of the input tensor.
         attention = self.sigmoid(squeeze).view(batch_size, channels, 1, 1)
-        # 将注意力权重应用到输入张量上，进行通道加权
+        # Apply the attention weights to the input tensor for channel weighting.
         return x * attention
 
 
 class CBAM(nn.Module):
     def __init__(self, in_channels, reduction=16):
         super(CBAM, self).__init__()
-        # 通道注意力模块（SEBlock），用于学习通道间的注意力权重
+        # Channel attention module (SEBlock), used to learn attention weights between channels.
         self.channel_attention = SEBlock(in_channels, reduction)
-        # 空间注意力模块，使用1x1卷积核学习空间注意力权重
+        # Spatial attention module, using 1x1 convolution kernels to learn spatial attention weights.
         self.spatial_attention = nn.Conv2d(2, 1, kernel_size=7, padding=3)
 
     def forward(self, x):
-        # 应用通道注意力模块，对输入特征进行通道加权
+        # Apply the channel attention module to perform channel weighting on the input features.
         x = self.channel_attention(x)
-        # 计算输入特征在通道维度上的平均值
+        # Calculate the average of the input features along the channel dimension.
         avg_out = torch.mean(x, dim=1, keepdim=True)
-        # 计算输入特征在通道维度上的最大值
+        # Calculate the maximum value of the input features along the channel dimension.
         max_out, _ = torch.max(x, dim=1, keepdim=True)
-        # 将平均值和最大值拼接在一起
+        # Concatenate the average value and the maximum value together.
         spatial_out = torch.cat([avg_out, max_out], dim=1)
-        # 通过空间注意力模块学习空间注意力权重
+        # Learn spatial attention weights through the spatial attention module.
         spatial_out = self.spatial_attention(spatial_out)
-        # 使用Sigmoid激活函数生成空间注意力权重
+        # Generate spatial attention weights using the Sigmoid activation function.
         spatial_attention = torch.sigmoid(spatial_out)
-        # 将空间注意力权重应用到输入特征上，进行空间加权
+        # Apply the spatial attention weights to the input features to perform spatial weighting.
         return x * spatial_attention
 
 
 class DualAttentionBlock(nn.Module):
     def __init__(self, in_channels, reduction=16):
         super(DualAttentionBlock, self).__init__()
-        # 通道注意力模块（SEBlock），用于学习通道间的注意力权重
+        # Channel attention module (SEBlock), used to learn the attention weights between channels.
         self.channel_attention = SEBlock(in_channels, reduction)
-        # 空间注意力模块（CBAM），用于学习空间上的注意力权重
+        # The Spatial Attention Module (CBAM) is used to learn spatial attention weights.
         self.spatial_attention = CBAM(in_channels, reduction)
 
     def forward(self, x):
-        # 应用通道注意力模块，对输入特征进行通道加权
+        # Apply the channel attention module to perform channel weighting on the input features.
         x = self.channel_attention(x)
-        # 应用空间注意力模块，对输入特征进行空间加权
+        # Apply the spatial attention module to weight the input features spatially.
         x = self.spatial_attention(x)
         return x
 
@@ -133,32 +133,32 @@ class AttentionModule(nn.Module):
 class Model2_3(nn.Module):
     def __init__(self):
         super(Model2_3, self).__init__()
-        # 减少通道数
+        # Reduce the number of channels
         self.conv1 = nn.Conv2d(148, 64, kernel_size=3, stride=1, padding=1)
         self.conv2 = nn.Conv2d(64, 32, kernel_size=3, stride=1, padding=1)
         self.conv3 = nn.Conv2d(32, 16, kernel_size=3, stride=1, padding=1)
         self.bn1 = nn.BatchNorm2d(16)
-        # 增加空间维度
+        # Increase spatial dimensions
         self.deconv1 = nn.ConvTranspose2d(16, 8, kernel_size=4, stride=2, padding=1)
         self.deconv2 = nn.ConvTranspose2d(8, 4, kernel_size=4, stride=2, padding=1)
         self.deconv3 = nn.ConvTranspose2d(4, 3, kernel_size=4, stride=2, padding=1)
         
-        # 最终调整到目标尺寸
+        # Finally adjusted to the target size.
         self.final_conv = nn.Conv2d(3, 3, kernel_size=3, stride=1, padding=1)
         self.upsample = nn.Upsample(size=(224, 224), mode='bilinear', align_corners=False)
 
     def forward(self, x):
-        # 减少通道数
+        # Reduce the number of channels
         x = F.relu(self.conv1(x))
         x = F.relu(self.conv2(x))
         x = F.relu(self.conv3(x))
         x = self.bn1(x)
-        # 增加空间维度
+        # Increase spatial dimensions
         x = F.relu(self.deconv1(x))
         x = F.relu(self.deconv2(x))
         x = F.relu(self.deconv3(x))
         
-        # 最终调整到目标尺寸
+        # Finally adjusted to the target size.
         x = self.final_conv(x)
         x = self.upsample(x)
         return x
@@ -173,58 +173,58 @@ class ResNetWithAttention(nn.Module):
         self.deconv2 = nn.ConvTranspose2d(128, 64, kernel_size=4, stride=2, padding=1)   # 64x64 -> 128x128
         self.deconv3 = nn.ConvTranspose2d(64, 32, kernel_size=4, stride=2, padding=1)    # 128x128 -> 256x256
         
-        # 减少通道数
+        # Reduce the number of channels
         self.conv1 = nn.Conv2d(32, 16, kernel_size=3, stride=1, padding=1)
         self.conv2 = nn.Conv2d(16, 8, kernel_size=3, stride=1, padding=1)
         self.conv3 = nn.Conv2d(8, 3, kernel_size=3, stride=1, padding=1)
         
-        # 最终调整到目标尺寸
+        # Finally adjusted to the target size.
         self.upsample = nn.Upsample(size=(224, 224), mode='bilinear', align_corners=False)
         self.conv4 = nn.Conv2d(6, 3, kernel_size=3, stride=1, padding=1)
-        # 使用预训练的 ResNet50
+        # Use the pre-trained ResNet50
         self.base_model = models.resnet50(pretrained=pretrained)
 
-        # 创建注意力模块
-        # self.attention_layer1 = attention_cls(64)  # 第一层卷积后
-        self.attention_layer2 = attention_cls(2048)  # 最后一层卷积后
+        # Create attention module
+        # self.attention_layer1 = attention_cls(64) 
+        self.attention_layer2 = attention_cls(2048) 
 
     def forward(self, x,img,return_probs=True):
-        # ResNet50的前向传播过程
+        # The forward propagation process of ResNet50
         x = F.relu(self.deconv1(x))  # [148, 32, 32] -> [128, 64, 64]
         x = F.relu(self.deconv2(x))  # [128, 64, 64] -> [64, 128, 128]
         x = F.relu(self.deconv3(x))  # [64, 128, 128] -> [32, 256, 256]
         
-        # 减少通道数
+        # Reduce the number of channels
         x = F.relu(self.conv1(x))  # [32, 256, 256] -> [16, 256, 256]
         x = F.relu(self.conv2(x))  # [16, 256, 256] -> [8, 256, 256]
         x = self.conv3(x)          # [8, 256, 256] -> [4, 256, 256]
         
-        # 最终调整到目标尺寸
+        # Finally adjusted to the target size.
         x = self.upsample(x) 
         x = torch.cat((x,img),dim=1)
         x = F.relu(self.conv4(x)) 
-        x = self.base_model.conv1(x)  # 初始卷积层
-        x = self.base_model.bn1(x)  # 批归一化
-        x = self.base_model.relu(x)  # 激活函数
+        x = self.base_model.conv1(x)  # Initial convolution layer
+        x = self.base_model.bn1(x)  # Batch normalization
+        x = self.base_model.relu(x)  # Activation function
 
         
 
-        # 最大池化层
+        # Max Pooling Layer
         x = self.base_model.maxpool(x)
 
-        # ResNet的残差层
+        # Residual layer of ResNet
         x = self.base_model.layer1(x)
         x = self.base_model.layer2(x)
         x = self.base_model.layer3(x)
         x = self.base_model.layer4(x)
 
-        # 第二个注意力模块：最后一层卷积后
+        # Second attention module: after the last convolution layer
         x = self.attention_layer2(x)
 
-        # 平均池化
+        # Average pooling
         x = self.base_model.avgpool(x)
 
-        # 展平并通过全连接层
+        # Flatten and pass through the fully connected layer.
         x = torch.flatten(x, 1)
         x = self.base_model.fc(x)
         
@@ -235,11 +235,11 @@ class ResNetWithAttention(nn.Module):
 
 
 
-# 数据读取
+# read data
 transforms = transforms.Compose([
-    transforms.Resize([224,224]),    # 将图片短边缩放至224，长宽比保持不变：
-    transforms.RandomHorizontalFlip(),   #将图片随机翻转
-    transforms.ToTensor()          #把图片进行归一化，并把数据转换成Tensor类型
+    transforms.Resize([224,224]),    # Scale the shorter side of the image to 224 while maintaining the aspect ratio.
+    transforms.RandomHorizontalFlip(),   # Randomly flip the image
+    transforms.ToTensor()          # Normalize the images and convert the data into Tensor type.
 ])
 
 corr = pd.read_csv('./corr.csv',header=0,index_col=0).values
@@ -268,7 +268,7 @@ class MyDataset(Dataset):
         xl = xl.reshape(1, 32,32)
         img = Image.open(img).convert('RGB')
 
-        # 此时img是PIL.Image类型   label是str类型
+        # img is of type PIL.Image and label is of type str.
 
         if self.transform is not None:
             img = self.transform(img)
@@ -283,19 +283,13 @@ class MyDataset(Dataset):
 
         return xl, img, label
     
-# train_image_paths = pd.read_csv('./train_concat.csv',header=0,index_col=0)
-# valid_image_paths = pd.read_csv('./test_concat.csv',header=0,index_col=0)
+
 train_image_paths = pd.read_csv('../output/temp_data/train.csv',header=0,index_col=0)
 valid_image_paths = pd.read_csv('../output/temp_data/train.csv',header=0,index_col=0)
-# valid_image_paths = valid_image_paths.sample(frac=1).reset_index(drop=True)
-# valid_image_paths = valid_image_paths.iloc[:229,:]
-# valid_image_paths = valid_image_paths.iloc[0:6,:]
 train_image_paths.reset_index(drop=True,inplace=True)
 valid_image_paths.reset_index(drop=True,inplace=True)
 train_dataset = MyDataset(train_image_paths)
 valid_dataset = MyDataset(valid_image_paths)
-# train_data_loader = DataLoader(dataset=train_dataset, batch_size=4, shuffle=True, num_workers=8, pin_memory=True, drop_last=True)
-# valid_data_loader = DataLoader(dataset=valid_dataset, batch_size=4, shuffle=True,num_workers=8, pin_memory=True, drop_last=True)
 train_data_loader = DataLoader(dataset=train_dataset, batch_size=10, shuffle=True, num_workers=8, pin_memory=True, drop_last=True)
 valid_data_loader = DataLoader(dataset=valid_dataset, batch_size=10, shuffle=True,num_workers=8, pin_memory=True, drop_last=True)
 
@@ -303,7 +297,6 @@ def train(net, train_iter, criterion, optimizer, num_epochs, device, num_print, 
     net.train()
     record_train = list()
     record_test = list()
-    #oyz
     train_AUC = list()
 
     for epoch in range(num_epochs):
@@ -311,40 +304,30 @@ def train(net, train_iter, criterion, optimizer, num_epochs, device, num_print, 
         logging.info("========== epoch: [{}/{}] ==========".format(epoch + 1, num_epochs))
         total, correct, train_loss = 0, 0, 0
         start = time.time()
-        #oyz
         pred_label = list()
         true_label = list()
         pred_proba = list()
 
         for i, (X,img, y) in enumerate(train_iter):
-            # print(X.size())
             X, y ,img= X.to(device), y.to(device), img.to(device)
             output,proba= net(X,img)
-            # for o in range(10):
-            #     proba_temp = proba[o].reshape(1,1000)
-            #     predicted_class = torch.argmax(proba_temp,dim=1).item()
-            #     confidence = proba_temp[0,predicted_class].item()
-            #     pred_proba.append(confidence)
             probs = F.softmax(output, dim=1)
             
-            # 获取预测类别和预测概率
+            # Obtain predicted category and predicted probability
             predicted_classes = torch.argmax(probs, dim=1)
 
-            # 获取正类（类别1）的预测概率用于 ROC
+            # Obtain the predicted probability of the positive class (Category 1) for ROC.
             pos_probs = probs[:, 1].detach().cpu().numpy()
             
             pred_label.extend(predicted_classes.cpu().numpy())
-            pred_proba.extend(pos_probs)          # 保存正类概率
+            pred_proba.extend(pos_probs)          # Save the positive class probability
             true_label.extend(y.cpu().numpy())
             
-            # predicted_class = torch.argmax(proba,dim=1).item()
-            # confidence = proba[0,predicted_class].item()
+
             loss = criterion(output, y)
 
             optimizer.zero_grad()
             loss.backward()
-            # with amp.scale_loss(loss, optimizer) as scaled_loss:
-            #     scaled_loss.backward()
             optimizer.step()
 
             train_loss += loss.item()
@@ -361,9 +344,6 @@ def train(net, train_iter, criterion, optimizer, num_epochs, device, num_print, 
                     .format(i + 1, len(train_iter), 
                             train_loss, 
                             train_acc, get_cur_lr(optimizer)))
-            #oyz
-            # pred_label+=list(output.argmax(dim=1).cpu().numpy())
-            # true_label+=list(y.cpu().numpy())
         epoch_auc = roc_auc_score(true_label,pred_proba)
         train_AUC.append(epoch_auc*100)
 
@@ -375,7 +355,6 @@ def train(net, train_iter, criterion, optimizer, num_epochs, device, num_print, 
         logging.info("--- cost time: {:.4f}s ---".format(time.time() - start))
 
         if test_iter is not None:
-            # record_test.append(test(net, test_iter, criterion, device))
             pass
         record_train.append(train_acc)
 
@@ -468,12 +447,7 @@ def plot_AUC(train_AUC, record_test=None):
 
 
 BATCH_SIZE = 32
-NUM_EPOCHS = 50
-# '''
-# 训练到50轮已经收敛
-# '''
-# NUM_EPOCHS = 50
-# NUM_EPOCHS = 2
+NUM_EPOCHS = 250
 NUM_CLASSES = 8
 LEARNING_RATE = 0.02
 MOMENTUM = 0.9
@@ -481,7 +455,7 @@ WEIGHT_DECAY = 0.0005
 NUM_PRINT = 100
 def main():
     device = torch.device("cuda:0")
-    attention_cls = DualAttentionBlock  # 可以替换为其他类型的注意力模块
+    attention_cls = DualAttentionBlock  
     net = ResNetWithAttention(attention_cls)
     net = net.to(device)
 
